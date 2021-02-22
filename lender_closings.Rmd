@@ -10,19 +10,13 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-install.packages(c("tidyverse","leaflet","tidycensus","devtools","sf"))
-devtools::install_github("andtheWings/IndyMaps")
-```
-
-
-```{r}
 library(tidyverse)
 library(leaflet)
-library(IndyMaps)
 library(leaflet.extras)
 library(tidycensus)
 library(sf)
 ```
+
 ```{r}
 
 br_2018 <- read_csv("IN_2018_Data.csv") %>% 
@@ -89,53 +83,9 @@ tracts <- st_read("https://opendata.arcgis.com/datasets/dab5051ee2e243e3a4a7a6fc
 majoriy_minority_tracts <- tracts %>%
     filter(NAME10 %in% majority_minority_tract_ids)
 
-branches_in_maj_min_tracts <- branches %>%
-    st_intersects(
-        majoriy_minority_tracts,
-        sparse = FALSE
-    ) %>%
-    as_tibble(
-    ) %>%
-    rowwise(
-    ) %>%
-    transmute(
-        any_tract = if_else(
-            sum(c_across(everything())) >= 1,
-            TRUE,
-            FALSE
-        )
-    ) %>%
-    bind_cols(
-        branches
-    ) %>%
-    filter(
-        any_tract == TRUE
-    ) %>%
-    st_as_sf() %>%
-    mutate(
-      case_when(
-        NAMEFULL %in% "Jpmorgan Chase Bank, National Association" ~ "darkred",
-        NAMEFULL %in% "PNC Bank, National Association" ~ "orange",
-        NAMEFULL %in% "The Huntington National Bank" ~ "darkgreen",
-        NAMEFULL %in% "Fifth Third Bank, National Association" ~ "darkblue",
-        NAMEFULL %in% "Regions Bank" ~ "darkpurple",
-        NAMEFULL %in% "Keybank National Association" ~ "pink",
-        NAMEFULL %in% "Woodforest National Bank" ~ "black"
-      )
-    )
-
-
 ```
 
 ```{r}
-
-branch_name <- branches_in_maj_min_tracts$NAMEFULL
-
-palBranch <- colorFactor("Set1", branches_in_maj_min_tracts$NAMEFULL)
-
-lending_hand <- makeIcon(
-  iconUrl = "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/fcec2d1b01ff069ac10500ac42e4478d20d21f4c/svgs/solid/hand-holding-usd.svg"
-)
 
 leaflet() %>%
   addProviderTiles("CartoDB") %>%
@@ -146,12 +96,9 @@ leaflet() %>%
     label = ~paste0("Census Tract: ",NAME10),
     opacity = 1, weight = 2, color = "gray",
     fillOpacity = 0) %>% 
-  addCircleMarkers(
-    data = branches_in_maj_min_tracts,
-    label = ~NAMEFULL,
-    fillOpacity = 0.7,
-    color = ~palBranch(NAMEFULL)) %>%
-  addLegend()
+  addMarkers(
+    data = closed,
+    label = ~NAMEFULL)
                 
 ```
 
