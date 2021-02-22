@@ -1,0 +1,161 @@
+---
+title: "Mapping Marion County Housing Lenders"
+author: "Daniel P. Riggins"
+date: "2/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages(c("tidyverse","leaflet","tidycensus","devtools","sf"))
+devtools::install_github("andtheWings/IndyMaps")
+```
+
+
+```{r}
+library(tidyverse)
+library(leaflet)
+library(IndyMaps)
+library(leaflet.extras)
+library(tidycensus)
+library(sf)
+```
+```{r}
+
+br_2018 <- read_csv("IN_2018_Data.csv") %>% 
+  filter(CNTYNAMB %in% "Marion") %>%
+  mutate(CERT_BRNUM = paste(as.character(CERT), as.character(BRNUM), sep = "_"))
+
+br_2019 <- read_csv("IN_2019_Data.csv") %>% 
+  filter(CNTYNAMB %in% "Marion") %>%
+  mutate(CERT_BRNUM = paste(as.character(CERT), as.character(BRNUM), sep = "_"))
+
+br_2020 <- read_csv("IN_2020_Data.csv") %>%
+  filter(CNTYNAMB %in% "Marion") %>%
+  mutate(CERT_BRNUM = paste(as.character(CERT), as.character(BRNUM), sep = "_"))
+
+
+closed_2019 <- anti_join(br_2018, br_2019, by = "CERT_BRNUM")
+
+closed_2020 <- anti_join(br_2018, br_2020, by = "CERT_BRNUM")
+
+closed <- bind_rows(closed_2019, closed_2020) %>% 
+  distinct() %>%
+  st_as_sf(coords = c("SIMS_LONGITUDE","SIMS_LATITUDE")) %>%
+  st_set_crs(4326)
+
+census_vars <- tidycensus::load_variables(2018, "acs5")
+
+race_eth_vars <- census_vars$name %>%
+  str_subset("^B0(2001|3002).*")
+
+race_eth_by_tract_raw <- get_acs(
+    geography = "tract",
+    variables = race_eth_vars,
+    state = "IN",
+    county = "Marion"
+)
+
+race_eth_by_tract <- census_vars %>%
+  right_join(
+    race_eth_by_tract_raw, by = c("name" = "variable")
+  )
+
+race_eth_by_tract_totals <- race_eth_by_tract %>%
+    filter(name %in% c("B02001_001")) %>%
+    select(
+        GEOID, 
+        estimate_total = estimate,
+        moe_total = moe
+    )
+
+majority_minority_race_eth_by_tract <- race_eth_by_tract %>%
+    filter(!(name %in% c("B02001_001", "B03002_001"))) %>%
+    left_join(race_eth_by_tract_totals) %>%
+    mutate(percentage = estimate / estimate_total * 100) %>%
+    filter(!(name %in% c("B02001_002","B03002_002","B03002_003"))) %>%
+    filter(percentage > 50)
+
+majority_minority_tract_ids <- majority_minority_race_eth_by_tract$NAME %>%
+    str_remove("Census Tract ") %>%
+    str_remove(", Marion County, Indiana") %>%
+    unique()
+
+tracts <- st_read("https://opendata.arcgis.com/datasets/dab5051ee2e243e3a4a7a6fc9033325d_2.geojson")
+
+majoriy_minority_tracts <- tracts %>%
+    filter(NAME10 %in% majority_minority_tract_ids)
+
+branches_in_maj_min_tracts <- branches %>%
+    st_intersects(
+        majoriy_minority_tracts,
+        sparse = FALSE
+    ) %>%
+    as_tibble(
+    ) %>%
+    rowwise(
+    ) %>%
+    transmute(
+        any_tract = if_else(
+            sum(c_across(everything())) >= 1,
+            TRUE,
+            FALSE
+        )
+    ) %>%
+    bind_cols(
+        branches
+    ) %>%
+    filter(
+        any_tract == TRUE
+    ) %>%
+    st_as_sf() %>%
+    mutate(
+      case_when(
+        NAMEFULL %in% "Jpmorgan Chase Bank, National Association" ~ "darkred",
+        NAMEFULL %in% "PNC Bank, National Association" ~ "orange",
+        NAMEFULL %in% "The Huntington National Bank" ~ "darkgreen",
+        NAMEFULL %in% "Fifth Third Bank, National Association" ~ "darkblue",
+        NAMEFULL %in% "Regions Bank" ~ "darkpurple",
+        NAMEFULL %in% "Keybank National Association" ~ "pink",
+        NAMEFULL %in% "Woodforest National Bank" ~ "black"
+      )
+    )
+
+
+```
+
+```{r}
+
+branch_name <- branches_in_maj_min_tracts$NAMEFULL
+
+palBranch <- colorFactor("Set1", branches_in_maj_min_tracts$NAMEFULL)
+
+lending_hand <- makeIcon(
+  iconUrl = "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/fcec2d1b01ff069ac10500ac42e4478d20d21f4c/svgs/solid/hand-holding-usd.svg"
+)
+
+leaflet() %>%
+  addProviderTiles("CartoDB") %>%
+  setView(lng = -86.158, lat = 39.842, zoom = 11) %>%
+  addFullscreenControl() %>% 
+  addPolygons(
+    data = majoriy_minority_tracts,
+    label = ~paste0("Census Tract: ",NAME10),
+    opacity = 1, weight = 2, color = "gray",
+    fillOpacity = 0) %>% 
+  addCircleMarkers(
+    data = branches_in_maj_min_tracts,
+    label = ~NAMEFULL,
+    fillOpacity = 0.7,
+    color = ~palBranch(NAMEFULL)) %>%
+  addLegend()
+                
+```
+
+```{r}
+m 
+```
+
